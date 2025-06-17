@@ -670,3 +670,129 @@ function Get-ExabeamCorrelationRules {
     return $response
 
 }
+
+function Run-ExabeamSearch {
+
+<#
+        .SYNOPSIS
+            Perform an Exabeam search
+        .DESCRIPTION
+            Takes paramaters broken down into switches - filter, fields, etc - and submits them to the Exabeam API to run a search. There is no need to run a subsequent GET to pulls the data down, as it is in the reply directly. 
+            You are able to do everything that can be done in a GUI based query. This includes the use of pipes and FOREACH functions. 
+		.PARAMETER token
+            The API token that must be supplied from Get-ExabeamAuth or another call to the auth API
+        .PARAMETER Filter
+            A search string in Exabeam query syntax (e.g., "username:jsmith AND action:login").
+
+        .PARAMETER Limit
+            Maximum number of events to return (integer). Default is 3000, maximum is 9223372036854775807 Maximum Int64 value. 
+
+        .PARAMETER StartTime
+            Start of time range for the search (ISO 8601 format) e.g. '2025-03-17T00:00:00Z' 
+
+        .PARAMETER EndTime
+            End of time range for the search (ISO 8601 format) e.g. '2025-03-17T00:00:00Z' 
+
+        .PARAMETER FieldsArray
+            An array of field names to include in the results (e.g., "username", "time").
+
+        .PARAMETER Sort
+            Sort order for results, e.g., "time desc" or "username asc".
+
+        .PARAMETER distinct
+            Include or exclude DISTINCT from the SELECT clause.
+
+        .PARAMETER orderByArray
+            Order fields by ASC or DESC.
+
+        .PARAMETER groupByArray
+            List of fields to GROUP BY.
+            e.g. -groupBy @('host')
+        .EXAMPLE
+            Run-ExabeamSearch -fieldsArray @('host','count(*) as Count') -filter 'product:"sysmon"' -startTime '2025-03-17T00:00:00Z' -endTime '2025-03-18T00:00:00Z' -limit 10 -groupByArray @('host')
+
+            This example 
+        .EXAMPLE
+            Run-ExabeamSearch -fieldsArray @('host','count(*) as Count') -filter 'product:"sysmon" | select count(*)' -startTime '2025-03-17T00:00:00Z' -endTime '2025-03-18T00:00:00Z' -limit 10 -groupByArray @('host')
+
+            This example makes use of the pipe operator in the query, which must be used in the -filter switch. 
+        .Example
+            Run-ExabeamSearch -fields @('host','user','count(*) as Count') -filter 'product:"sysmon" and not user:null and not host:null' -startTime '2025-03-17T00:00:00Z' -endTime '2025-03-18T00:00:00Z' -limit 10 -groupBy @('host','user') -orderBy @('user desc','count(*) asc','host desc')
+
+            This example makes use of the -orderByArray switch as well. A note that PowerShell will filter out a column if all the values in it are null - i.e. a column of all 0/null values just won't appear in the result.  
+        .EXAMPLE
+#>
+
+    [CmdletBinding()]
+    Param (
+        
+        [Parameter(Mandatory = $false, Position = 0)]
+        [string] $token,
+
+        [Parameter(Mandatory = $true, Position = 0)]
+        [array] $fieldsArray,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [switch] $distinct,
+
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $filter,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [int64] $limit = 3000,
+        
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $startTime,
+
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $endTime,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [array] $groupByArray,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [array] $orderByArray
+    )
+
+    # auth check
+    if(!$token -and  !$env:ExabeamAPIToken) {
+        Write-Warning 'No authentication method was supplied. Please use the Get-ExabeamAuth cmdlet and pass in the token in the $token switch or save it to cache'
+    } elseif (!$token) {
+        $token = Get-EncryptedEnvironmentVariable
+    }
+
+
+    $Body = @{
+        distinct = [bool]$distinct
+        fields = @($fields)
+        startTime = $startTime
+        endTime = $endTime
+        filter = $filter
+        limit = [string]$limit
+    }
+
+    # Add in fields that are non mandatory, but null values will break the API call
+    if ($orderBy) { $body.add("orderBy", @($orderBy)) } 
+    if ($groupBy) { $body.add("groupBy", @($groupBy)) } 
+
+
+    $headers=@{}
+    $headers.Add("accept", "application/json")
+    $headers.Add("content-type", "application/json")
+    $headers.Add("authorization", "Bearer $token")
+    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/search/v2/events" -Method POST -Headers $headers -Body $($body|ConvertTo-Json -Compress)
+
+    if(!$response) { Write-Warning "No return from API call"; return}
+
+    try {
+        $finalResponse = ($response.Content|ConvertFrom-Json).rows
+    } catch {
+        # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
+        Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
+
+        $finalResponse = $response
+    }
+
+    return $finalResponse
+
+}
