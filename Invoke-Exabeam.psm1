@@ -1,6 +1,5 @@
-# ChatGPT code in this function
 function Add-EncryptedEnvironmentVariable {
-
+# ChatGPT code in this function
     [CmdletBinding()]
     Param (
         
@@ -32,9 +31,8 @@ function Add-EncryptedEnvironmentVariable {
     [System.Environment]::SetEnvironmentVariable($envVariableName, $encryptedBase64, $envVariableScope)
 }
 
-# ChatGPT code in this function
 function Get-EncryptedEnvironmentVariable {
-
+# ChatGPT code in this function
     [CmdletBinding()]
     Param (
 
@@ -624,18 +622,16 @@ function Remove-ExabeamContextTable {
 function Get-ExabeamCorrelationRules {
 <#
         .SYNOPSIS
-            Delete a specific context table, including records and attributes.
+            Returns a list of all correlation rules that match the name.
         .DESCRIPTION
-            Delete a specific context table, including records and attributes
+            Returns a list of all correlation rules that match the name.
 		.PARAMETER token
             The API token that must be supplied from Get-ExabeamAuth or another call to the auth API
-        .PARAMETER contextTableId
-            Specify the ID of an existing context table. Find this using either the Get-ExabeamSpecificContext or Get-ExabeamAllContexts cmdlets. 
-		.PARAMETER deleteUnusedAttributes
-            Delete any custom attributes in this table that are not used in another context table. Default is true. 
+        .PARAMETER ruleNameSearch
+            Return rules that contain the input string.             
         .Example
-            Remove-ExabeamContextTable -token $exabeamToken -contextTableId 'fgo4tgefg' -deleteUnusedAttributes $true 
-        .EXAMPLE
+            Get-ExabeamCorrelationRules -ruleNameSearch 'brute force' -token $ExabeamToken
+
 #>
 
     [CmdletBinding()]
@@ -645,7 +641,73 @@ function Get-ExabeamCorrelationRules {
         [string] $token,
 
         [Parameter(Mandatory = $false, Position = 0)]
-        [string] $ruleNameSearch = ' '
+        [string] $ruleNameSearch
+    )
+
+    # auth check
+    if(!$token -and  !$env:ExabeamAPIToken) {
+        Write-Warning "No authentication method was supplied. Please use the Get-ExabeamAuth cmdlet and pass in the token in the $token switch or save it to cache"
+    } elseif (!$token) {
+        $token = Get-EncryptedEnvironmentVariable
+    }
+
+    if ($ruleNameSearch) { 
+        $body = @{
+            nameContains = $ruleNameSearch
+        }    
+    }
+
+    $headers=@{}
+    $headers.Add("accept", "application/json")
+    $headers.Add("authorization", "Bearer $token")
+    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/correlation-rules/v2/rules" -Method GET -Headers $headers -Body $body
+
+    # error check
+    switch ($response.Statuscode) {
+        200 {}
+        201 {}
+        default {<#Write-Warning "Error encountered with HTTP code $($response.Statuscode)"#>} #TODO: replace this just with specific warnings about errors, the general one is a bit messy 
+    }
+
+    if(!$response) { Write-Warning "No return from API call"; return}
+
+    try {
+        $finalResponse = ($response.Content|ConvertFrom-Json)
+    } catch {
+        # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
+        Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
+
+        $finalResponse = $response
+    }
+
+    return $finalResponse
+
+}
+
+function Get-ExabeamCorrelationRuleDetails {
+
+<#
+        .SYNOPSIS
+            Return the details of a specific correlation rule.
+        .DESCRIPTION
+            Return the details of a specific correlation rule.
+		.PARAMETER token
+            The API token that must be supplied from Get-ExabeamAuth or another call to the auth API
+        .PARAMETER ruleID
+            Return rules that match Correlation rule ID            
+        .Example
+            
+
+#>
+
+    [CmdletBinding()]
+    Param (
+        
+        [Parameter(Mandatory = $false, Position = 0)]
+        [string] $token,
+
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $ruleID
     )
 
     # auth check
@@ -658,7 +720,7 @@ function Get-ExabeamCorrelationRules {
     $headers=@{}
     $headers.Add("accept", "application/json")
     $headers.Add("authorization", "Bearer $token")
-    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/correlation-rules/v2/rules?nameContains=r$($ruleNameSearch)" -Method GET -Headers $headers
+    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/correlation-rules/v2/rules/$($ruleID)" -Method GET -Headers $headers
 
     # error check
     switch ($response.Statuscode) {
@@ -667,7 +729,91 @@ function Get-ExabeamCorrelationRules {
         default {<#Write-Warning "Error encountered with HTTP code $($response.Statuscode)"#>} #TODO: replace this just with specific warnings about errors, the general one is a bit messy 
     }
 
-    return $response
+    try {
+        $finalResponse = ($response.Content|ConvertFrom-Json)
+    } catch {
+        # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
+        Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
+
+        $finalResponse = $response
+    }
+
+    return $finalResponse
+
+
+}
+
+function Update-ExabeamCorrelationRule {
+
+<#
+        .SYNOPSIS
+            Update a correlation rule
+        .DESCRIPTION
+            Update a correlation rule
+		.PARAMETER token
+            The API token that must be supplied from Get-ExabeamAuth or another call to the auth API
+        .PARAMETER ruleID
+            Return rules that match Correlation rule ID            
+        .Example
+            Update-ExabeamCorrelationRule
+
+#>
+
+    [CmdletBinding()]
+    Param (
+        
+        [Parameter(Mandatory = $false, Position = 0)]
+        [string] $token,
+
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $ruleID,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [switch] $delay,
+
+        [Parameter(Mandatory = $false, Position = 0)]
+        [Int32] $delayTimeInMinutes
+    )
+
+
+    # auth check
+    if(!$token -and  !$env:ExabeamAPIToken) {
+        Write-Warning "No authentication method was supplied. Please use the Get-ExabeamAuth cmdlet and pass in the token in the $token switch or save it to cache"
+    } elseif (!$token) {
+        $token = Get-EncryptedEnvironmentVariable
+    }
+
+    $Config = Get-ExabeamCorrelationRuleDetails -ruleID $ruleID
+
+    # Make changes
+    if ($suppressOption) { $Config.suppressConfig.suppressOption = [bool]$suppressOption } 
+    if ($suppressUnit) { $Config.suppressConfig.suppressOption = $suppressUnit } 
+    if ($delay) { $Config.delayConfig.delay = [bool]$delay } 
+    if ($delayTimeInMinutes) { $Config.delayConfig.delayTimeInMinutes = $delayTimeInMinutes } 
+
+    $headers=@{}
+    $headers.Add("accept", "application/json")
+    $headers.Add("authorization", "Bearer $token")
+    $headers.Add("content-type", "application/json")
+    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/correlation-rules/v2/rules/$($ruleID)" -Method Put -Headers $headers -Body $($Config|ConvertTo-Json -Depth 100 -Compress)
+
+    # error check
+    switch ($response.Statuscode) {
+        200 {}
+        201 {}
+        default {<#Write-Warning "Error encountered with HTTP code $($response.Statuscode)"#>} #TODO: replace this just with specific warnings about errors, the general one is a bit messy 
+    }
+
+    try {
+        $finalResponse = ($response.Content|ConvertFrom-Json)
+    } catch {
+        # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
+        Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
+
+        $finalResponse = $response
+    }
+
+    return $finalResponse
 
 }
 
@@ -720,7 +866,6 @@ function Run-ExabeamSearch {
             Run-ExabeamSearch -fields @('host','user','count(*) as Count') -filter 'product:"sysmon" and not user:null and not host:null' -startTime '2025-03-17T00:00:00Z' -endTime '2025-03-18T00:00:00Z' -limit 10 -groupBy @('host','user') -orderBy @('user desc','count(*) asc','host desc')
 
             This example makes use of the -orderByArray switch as well. A note that PowerShell will filter out a column if all the values in it are null - i.e. a column of all 0/null values just won't appear in the result.  
-        .EXAMPLE
 #>
 
     [CmdletBinding()]
@@ -764,7 +909,7 @@ function Run-ExabeamSearch {
 
     $Body = @{
         distinct = [bool]$distinct
-        fields = @($fields)
+        fields = @($fieldsArray)
         startTime = $startTime
         endTime = $endTime
         filter = $filter
@@ -772,8 +917,8 @@ function Run-ExabeamSearch {
     }
 
     # Add in fields that are non mandatory, but null values will break the API call
-    if ($orderBy) { $body.add("orderBy", @($orderBy)) } 
-    if ($groupBy) { $body.add("groupBy", @($groupBy)) } 
+    if ($orderByArray) { $body.add("orderBy", @($orderByArray)) } 
+    if ($groupByArray) { $body.add("groupBy", @($groupByArray)) } 
 
 
     $headers=@{}
@@ -786,6 +931,60 @@ function Run-ExabeamSearch {
 
     try {
         $finalResponse = ($response.Content|ConvertFrom-Json).rows
+    } catch {
+        # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
+        Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
+
+        $finalResponse = $response
+    }
+
+    return $finalResponse
+
+}
+
+function Get-ExabeamTemplates {
+
+<#
+        .SYNOPSIS
+            
+        .DESCRIPTION
+             
+		.PARAMETER token
+            The API token that must be supplied from Get-ExabeamAuth or another call to the auth API
+        .PARAMETER 
+
+        .PARAMETER 
+
+        .EXAMPLE
+
+#>
+
+    [CmdletBinding()]
+    Param (
+        
+        [Parameter(Mandatory = $false, Position = 0)]
+        [string] $token
+
+    )
+
+    # auth check
+    if(!$token -and  !$env:ExabeamAPIToken) {
+        Write-Warning 'No authentication method was supplied. Please use the Get-ExabeamAuth cmdlet and pass in the token in the $token switch or save it to cache'
+    } elseif (!$token) {
+        $token = Get-EncryptedEnvironmentVariable
+    }
+
+
+
+    $headers=@{}
+    $headers.Add("accept", "application/json")
+    $headers.Add("authorization", "Bearer $token")
+    $response = Invoke-WebRequest -Uri "https://api.$($env:SelectedExabeamRegion).exabeam.cloud/site-collectors/v1/templates" -Method GET -Headers $headers
+
+    if(!$response) { Write-Warning "No return from API call"; return}
+
+    try {
+        $finalResponse = ($response.Content|ConvertFrom-Json)
     } catch {
         # In limited circumstances convertion to JSON can fail - known issue is identical field names disintguished only by different casing. 
         Write-Warning "Failed to convert data from JSON. Dumping full response object instead."
